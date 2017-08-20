@@ -1,5 +1,6 @@
 /* global process */
 import cluster from 'cluster';
+import { isNil } from 'lodash';
 import WebSocket from 'uws';
 import uuid from 'uuid/v4';
 import hash from 'string-hash';
@@ -26,19 +27,129 @@ const CASE_INSENSITIVE_SERVICES = [
 ];
 
 
-export default function makeWebSocketServer(server) {
+/**
+ * Returns `true` if `service` and `channel` are a valid pair. Otherwise,
+ * returns `false`.
+ *
+ * The validity of a `service`/`channel` pair is determined firstly by the
+ * `service`:
+ *
+ *   * If `service` is "advanced", then the pair is valid if `channel` is a
+ *     valid advanced stream URL.
+ *   * Else, if `service` is not "advanced", then the pair is valid if `channel`
+ *     is between 1 and 64 characters long containing alphanumeric characters,
+ *     hyphens, and underscores.
+ *
+ * @param {string} service
+ * @param {string} channel
+ */
+function isValidServiceChannelPair(service, channel) {
+  return (service === 'advanced' && isValidAdvancedUrl(channel))
+    || (service !== 'advanced' && /^[a-zA-Z0-9\-_]{1,64}$/.test(channel));
+}
 
-  const wss = new WebSocket.Server({ server });
-  const rustler_sockets = new Map(); // Rustler.id => websocket map
+/**
+ * Returns a `Promise` which resolves to `true` if `service/channel` is a banned
+ * stream, or `false` if it is not a banned stream.
+ *
+ * @param {string} service
+ * @param {string channel
+ */
+async function isBannedStream(service, channel) {
+  const [bannedStream] = await BannedStream.findAll({
+    where: { channel, service },
+    limit: 1,
+  });
+  return Boolean(bannedStream);
+}
 
-  // update all rustlers for this stream, and the lobby
-  let updateRustlers = async stream_id => {
-    // ensure we're actually updating a stream and not the lobby on accident
+class WebSocketServer {
+  constructor(options) {
+    this.rustlerSockets = new Map();
+    this.server = new WebSocket.Server({
+      server: options.server,
+    });
+
+    this.server.on('connection', this.onConnection.bind(this));
+  }
+
+  /**
+   * Executed when a new client establishes a connection.
+   */
+  async onConnection(socket) {
+    const id = uuid();
+    this.rustlerSockets.set(id, socket);
+    await Rustler.create({ id, stream_id: null });
+
+    socket.on('message', this.onMessage.bind(this, id));
+    socket.on('close', this.onDisconnect.bind(this, id));
+  }
+
+  /**
+   * Executed when client with the given `id` disconnects from this server.
+   */
+  async onDisconnect(id) {
+    this.rustlerSockets.delete(id);
+    const rustler = await Rustler.findById(id);
+    if (!rustler) {
+      debug(`rustler ${id} disconnected, but is not in database`);
+      return;
+    }
+
+    // Get the stream that this rustler was watching, and trigger a recount of
+    // the stream's rustlers after deleting the rustler.
+    const { stream_id } = rustler;
+    await rustler.destroy();
+    if (stream_id) {
+      await this.updateRustlers(stream_id);
+    }
+  }
+
+  /**
+   * Executed when this server receives a message from a client.
+   *
+   * @param {string} rustler_id
+   * @param {string} message
+   */
+  async onMessage(rustler_id, message) {
+    // An empty message from a client is a ping.
+    if (!message) {
+      return;
+    }
+
+    let event;
+    let args;
+    try {
+      [event, ...args] = JSON.parse(message);
+    }
+    catch (error) {
+      debug('failed to parse received message', message, error);
+      return;
+    }
+
+    if (event === 'getStream') {
+      this.getStream(rustler_id, ...args);
+    }
+    else if (event === 'setStream') {
+      this.setStream(rustler_id, ...args);
+    }
+    else {
+      debug(`unknown request from client: ${event}`);
+    }
+  }
+
+  /**
+   * Sends a message to all rustlers, informing them of the current rustler
+   * count for the stream with id `stream_id`.
+   */
+  async updateRustlers(stream_id) {
     if (!stream_id) {
       return;
     }
-    const [ rustlers, rustler_count ] = await Promise.all([ // we can do this in parallel
-      // send this update to everyone on this stream and everyone in the lobby
+
+    // Get all rustlers currently connected and the number of rustlers watching
+    // the stream with id `stream_id` in parallel.
+    const [rustlers, rustler_count] = await Promise.all([
       Rustler.findAll({
         where: {
           $or: [
@@ -47,42 +158,208 @@ export default function makeWebSocketServer(server) {
           ],
         },
       }),
-      // need to get the amount of rustlers watching this stream too
       Stream.findRustlersFor(stream_id),
     ]);
-    // send update to these rustlers
+
     for (const rustler of rustlers) {
-      const ws = rustler_sockets.get(rustler.id);
-      // check that we have this rustler, they might be using another websocket server
-      if (ws) {
-        ws.send(JSON.stringify(['RUSTLERS_SET', stream_id, rustler_count]));
+      const socket = this.rustlerSockets.get(rustler.id);
+
+      if (socket) {
+        socket.send(JSON.stringify(['RUSTLERS_SET', stream_id, rustler_count]));
       }
     }
-    // get rid of the stream if no one's watching it anymore
+
+    // Remove stream if there are no rustlers watching it.
     if (rustler_count === 0) {
       await Stream.destroy({ where: { id: stream_id } });
     }
-  };
-  const updateLobby = async () => {
-    // get all streams and count rustlers
+  }
+
+  /**
+   * Gets information about the stream with id `stream_id`, and sends it to the
+   * rustler with id `rustler_id`.
+   */
+  async getStream(rustler_id, stream_id) {
+    const socket = this.rustlerSockets.get(rustler_id);
+    const stream = await Stream.findById(stream_id);
+    const rustlers = await Stream.findRustlersFor(stream.id);
+    socket.send(JSON.stringify(['STREAM_GET', {
+      ...stream.toJSON(),
+      rustlers,
+    }]));
+  }
+
+  /**
+   * Sets rustler's stream to the lobby.
+   *
+   * @param {string} rustler_id
+   */
+  async setLobby(rustler_id) {
+    const socket = this.rustlerSockets.get(rustler_id);
+    const [ rustler ] = await Rustler.findAll({
+      where: { id: rustler_id },
+      limit: 1,
+      include: [
+        {
+          model: Stream,
+          as: 'stream',
+        },
+      ],
+    });
+
+    // Set rustler's stream to `null`.
+    await rustler.update({ stream_id: null });
+
+    // Let the rustler know that they've been moved to the lobby.
+    socket.send(JSON.stringify(['STREAM_SET', null]));
+
+    // Send the list of streams to the rustler.
     const streams = await Stream.findAllWithRustlers();
-    // send `STREAMS_SET`
-    for (const ws of rustler_sockets.values()) {
-      ws.send(JSON.stringify([
-        'STREAMS_SET',
-        streams,
-      ]));
+    socket.send(JSON.stringify(['STREAMS_SET', streams]));
+  }
+
+  /**
+   * Sets the stream for rustler with id `rustler_id`.
+   *
+   * If `channel` and `service` are both nil, then the rustler will be recorded
+   * as being in the lobby.
+   *
+   * @param {string} rustler_id
+   * @param {string} channel
+   * @param {string} service
+   */
+  async setStream(rustler_id, channel, service) {
+    if (isNil(channel) && isNil(service)) {
+      await this.setLobby(rustler_id);
+      return;
     }
-  };
-  // need to set up some relaying if we're multi-processing
-  // set up basic eventing between master and slave
+
+    const socket = this.rustlerSockets.get(rustler_id);
+    const [ rustler ] = await Rustler.findAll({
+      where: { id: rustler_id },
+      limit: 1,
+      include: [
+        {
+          model: Stream,
+          as: 'stream',
+        },
+      ],
+    });
+
+    // Basic channel name sanitization.
+    if (!isValidServiceChannelPair(service, channel)) {
+      debug(`rejecting ${service}/${channel} as invalid`);
+      await this.setLobby(rustler_id);
+      return;
+    }
+
+    // Encode advanced URLs through punycode.
+    if (service === 'advanced' && channel) {
+      channel = new URL(channel).href;
+    }
+
+    let stream = null;
+
+    // If only `channel` was provided, then use that as the OverRustle username
+    // and look up the user's service and channel.
+    if (!service) {
+      ([ stream ] = await Stream.findAll({
+        where: { overrustle_id: channel },
+        include: [
+          {
+            model: User,
+            as: 'overrustle',
+          },
+        ],
+        limit: 1,
+      }));
+
+      if (!stream) {
+        const user = await User.findById(channel);
+
+        // Ensure that `channel` is a real OverRustle user.
+        if (!user) {
+          debug(`rustler ${rustler_id} attempted to visit stream of unknown user ${channel}`);
+          await this.setLobby(rustler_id);
+          return;
+        }
+
+        // Ensure that the user has a channel
+        if (!user.channel || !user.service) {
+          await this.setLobby(rustler_id);
+          return;
+        }
+
+        stream = await Stream.create({
+          id: hash(`${user.service}/${user.channel}`),
+          channel: user.channel,
+          service: user.service,
+          overrustle_id: channel,
+        });
+      }
+    }
+
+    // Otherwise, both `service` and `channel` were provided.
+    else {
+      if (CASE_INSENSITIVE_SERVICES.includes(service)) {
+        channel = channel.toLowerCase();
+      }
+
+      ([ stream ] = await Stream.findAll({
+        where: { channel, service },
+        limit: 1,
+      }));
+
+      if (!stream) {
+        stream = await Stream.create({
+          id: hash(`${service}/${channel}`),
+          channel,
+          service,
+        });
+      }
+    }
+
+    await rustler.update({ stream_id: stream.id });
+    const rustlers = await Stream.findRustlersFor(stream.id);
+
+    // Send acknowledgement to the client that their stream has successfully
+    // been set.
+    socket.send(JSON.stringify(['STREAM_SET', {
+      ...stream.toJSON(),
+      rustlers,
+    }]));
+
+    // Inform everyone else that this rustler's current stream has changed.
+    await this.updateRustlers(stream.id);
+  }
+
+  /**
+   * Sends a message containing the list of current streams to all rustlers.
+   */
+  async updateLobby() {
+    // Get all streams and count rustlers.
+    const streams = await Stream.findAllWithRustlers();
+
+    // send `STREAMS_SET`
+    for (const socket of this.rustlerSockets.values()) {
+      socket.send(JSON.stringify(['STREAMS_SET', streams]));
+    }
+  }
+}
+
+export default function makeWebSocketServer(server) {
+  const wss = new WebSocketServer({ server });
+
+  // Need to set up some relaying if we're multi-processing.
+  // Set up basic eventing between master and worker.
   if (cluster.isWorker) {
-    // define events to listen to from master
+    // Define events to listen to from master.
     const events = {
-      updateRustlers,
-      updateLobby,
+      updateRustlers: wss.updateRustlers,
+      updateLobby: wss.updateLobby.bind(wss),
     };
-    // listen for events from master
+
+    // Listen for events from master.
     process.on('message', message => {
       debug('got message from master %j', message);
       if (message.event) {
@@ -94,247 +371,5 @@ export default function makeWebSocketServer(server) {
         }
       }
     });
-    // make our `updateRustlers` function notify master instead
-    updateRustlers = (...args) => process.send({
-      type: 'forward',
-      payload: {
-        event: 'updateRustlers',
-        args: args,
-      },
-    });
   }
-
-  const wsEventHandlers = {
-    // get information about a stream
-    // getStream('fee55b7e-fac7-46b8-a5dd-4e86b106e846');
-    async getStream(id, stream_id) {
-      const ws = rustler_sockets.get(id);
-      try {
-        const stream = await Stream.findById(stream_id);
-        if (!stream) {
-          throw new Error(`Stream "${stream_id}" not found`);
-        }
-        const rustlers = await Stream.findRustlersFor(stream.id);
-        // send `SET_STREAM` acknowledgement
-        ws.send(JSON.stringify(['STREAM_GET', {
-          ...stream.toJSON(),
-          rustlers,
-        }]));
-      }
-      catch (err) {
-        debug(`Failed to respond to \`getStream\` event from rustler ${id}`, err);
-        ws.send(JSON.stringify([
-          'ERR',
-          err.message,
-        ]));
-      }
-    },
-
-    // set the user's stream to [channel, service], or id, or null (for lobby)
-    // eg, on client:
-    // setStream('destiny', 'twitch');
-    // setStream('destiny'); // where `destiny` is the name of the overrustle user
-    // setStream(null); // lobby
-    async setStream(id, channel, service) {
-      const ws = rustler_sockets.get(id);
-      try {
-        // Basic channel name sanitization.
-        if ((service === 'advanced' && !isValidAdvancedUrl(channel))
-          || (service !== 'advanced' && !/^[a-zA-Z0-9\-_]{1,64}$/.test(channel))) {
-          debug(`rejecting ${service}/${channel} as invalid`);
-          channel = null;
-        }
-
-        if (service === 'advanced') {
-          channel = new URL(channel).href;
-        }
-
-        // get our rustler and their stream from the db
-        const [ rustler ] = await Rustler.findAll({
-          where: { id },
-          limit: 1,
-          include: [
-            {
-              model: Stream,
-              as: 'stream',
-            },
-          ],
-        });
-        // get our stream
-        let stream;
-        let bannedStream;
-        if (!channel) {
-          // we must be setting our stream to null (for lobby)
-          stream = null;
-        }
-        else {
-          if (!service) {
-            // must be setting by overrustle user
-            ([ stream ] = await Stream.findAll({
-              where: { overrustle_id: channel },
-              include: [
-                {
-                  model: User,
-                  as: 'overrustle',
-                },
-              ],
-              limit: 1,
-            }));
-            if (!stream) {
-              const user = await User.findById(channel);
-              // ensure that `channel` is a real overrustle user
-              if (!user) {
-                throw new Error(`User "${channel}" does not exist`);
-              }
-              // ensure that the user has a channel
-              if (!user.channel || !user.service) {
-                throw new Error(`User "${channel}" does not have a channel`);
-              }
-              stream = await Stream.create({
-                id: hash(`${user.service}/${user.channel}`),
-                channel: user.channel,
-                service: user.service,
-                overrustle_id: channel,
-              });
-            }
-          }
-          else {
-            if (CASE_INSENSITIVE_SERVICES.includes(service)) {
-              channel = channel.toLowerCase();
-            }
-
-            // must be setting by channel-service pair
-            ([ stream ] = await Stream.findAll({
-              where: { channel, service },
-              limit: 1,
-            }));
-            if (!stream) {
-              stream = await Stream.create({
-                id: hash(`${service}/${channel}`),
-                channel,
-                service,
-              });
-            }
-          }
-        }
-        const prevStream = rustler.stream ? rustler.stream.toJSON() : null;
-        let banned = false;
-        if (stream) {
-          ([ bannedStream ] = await BannedStream.findAll({
-            where: { channel: stream.channel, service: stream.service },
-            limit: 1,
-          }));
-          if (bannedStream) {
-            banned = true;
-          }
-        }
-        if (stream && !banned) {
-          debug('rustler set stream %j => %j', prevStream, stream.toJSON());
-          // update rustler
-          await rustler.update({ stream_id: stream.id });
-          const rustlers = await Stream.findRustlersFor(stream.id);
-          // send `SET_STREAM` acknowledgement
-          ws.send(JSON.stringify(['STREAM_SET', {
-            ...stream.toJSON(),
-            rustlers,
-          }]));
-          // update everyone else
-          await updateRustlers(stream.id);
-        }
-        else {
-          debug('rustler set stream %j => null', prevStream);
-          // update rustler
-          await rustler.update({ stream_id: null });
-          if (banned) {
-            await stream.destroy();
-            ws.send(JSON.stringify([
-              'STREAM_BANNED',
-              null,
-            ]));
-          }
-          // get all streams and count rustlers
-          const streams = await Stream.findAllWithRustlers();
-          // send `SET_STREAM` acknowledgement
-          ws.send(JSON.stringify([
-            'STREAM_SET',
-            null,
-          ]));
-          // send `STREAMS_SET` now (because they're in the lobby)
-          ws.send(JSON.stringify([
-            'STREAMS_SET',
-            streams,
-          ]));
-        }
-        // update everyone else
-        if (prevStream) {
-          await updateRustlers(prevStream.id);
-        }
-      }
-      catch (err) {
-        debug(`Failed to respond to \`setStream\` event from rustler ${id}`, err);
-        ws.send(JSON.stringify([
-          'ERR',
-          err.message,
-        ]));
-      }
-    },
-    async disconnect(id) {
-      try {
-        rustler_sockets.delete(id);
-        const rustler = await Rustler.findById(id);
-
-        // This rustler is not in the database, so nothing needs to be done here.
-        if (!rustler) {
-          debug('no known rustler with id', id);
-          return;
-        }
-
-        debug('rustler disconnect %j', rustler.toJSON());
-        const { stream_id } = rustler;
-        await rustler.destroy();
-        if (stream_id) {
-          await updateRustlers(stream_id);
-        }
-      }
-      catch (err) {
-        debug('Error disconnecting', err);
-      }
-    },
-  };
-
-  wss.on('connection', ws => {
-    try {
-      const id = uuid();
-      rustler_sockets.set(id, ws);
-      const rustler_create = Rustler.create({ id, stream_id: null });
-      ws.on('message', async message => {
-        // handle client 'ping', which is an empty string
-        if (!message) {
-          return;
-        }
-        try {
-          const [ event, ...args ] = JSON.parse(message);
-          const handler = wsEventHandlers[event];
-          if (!handler) {
-            throw new TypeError(`Invalid event "${event}"`);
-          }
-          // ensure we've created this rustler first
-          await Promise.resolve(rustler_create);
-          debug(`event [${event}] (${id})`);
-          handler(id, ...args);
-        }
-        catch (err) {
-          debug(`Failed to handle incoming websocket message:\n${message}\n`, err);
-          ws.send(JSON.stringify([
-            'ERR',
-            err.message,
-          ]));
-        }
-      });
-      ws.on('close', () => wsEventHandlers.disconnect(id));
-    }
-    catch (err) {
-      debug('Failed to handle incoming websocket connection', err);
-    }
-  });
 }
