@@ -18,6 +18,7 @@ import HeaderForm from './HeaderForm';
 const Header = ({
   rustlerCount,
   isLoggedIn,
+  isAdmin,
   isOtherChatActive,
   currentStreamService,
   toggleChat,
@@ -56,24 +57,35 @@ const Header = ({
               <HeaderForm history={history} />
             </li>
             <li>
-              <div className='btn-group'>
-                {
-                  isLoggedIn ?
-                  <Link className='btn btn-default navbar-btn' to='/profile' title='Profile'>
-                    <span className='glyphicon glyphicon-user' />
-                  </Link>
-                  : null
-                }
-                {
-                  isLoggedIn ?
-                  <Link className='btn btn-default navbar-btn' to='/logout' title='Log Out'>
-                    <span className='glyphicon glyphicon-log-out' />
-                  </Link>
-                  :
-                  <a className='btn btn-default navbar-btn' href='/login' title='Log In'>
-                    <span className='glyphicon glyphicon-log-in' />
-                  </a>
-                }
+              <div className='btn-toolbar' role='toolbar'>
+                <div className='btn-group'>
+                  {
+                    isAdmin
+                      ? <Link className='btn btn-default navbar-btn' to='/admin' title='Admin'>
+                        <span>Admin</span>
+                      </Link>
+                      : null
+                  }
+                </div>
+                <div className='btn-group'>
+                  {
+                    isLoggedIn ?
+                      <Link className='btn btn-default navbar-btn' to='/profile' title='Profile'>
+                        <span className='glyphicon glyphicon-user' />
+                      </Link>
+                      : null
+                  }
+                  {
+                    isLoggedIn ?
+                      <Link className='btn btn-default navbar-btn' to='/logout' title='Log Out'>
+                        <span className='glyphicon glyphicon-log-out' />
+                      </Link>
+                      :
+                      <a className='btn btn-default navbar-btn' href='/login' title='Log In'>
+                        <span className='glyphicon glyphicon-log-in' />
+                      </a>
+                  }
+                </div>
               </div>
             </li>
           </ul>
@@ -98,6 +110,7 @@ export default compose(
   connect(
     state => ({
       isLoggedIn: state.self.isLoggedIn,
+      isAdmin: get(state, 'self.profile.data.is_admin', false),
       isOtherChatActive: state.ui.isOtherChatActive,
       currentStreamService: get(state, ['streams', state.stream, 'service']),
     }),

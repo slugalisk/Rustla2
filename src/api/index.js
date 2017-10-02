@@ -41,6 +41,7 @@ api.get('/profile', async (req, res, next) => {
       service: dbUser.service,
       channel: dbUser.channel,
       left_chat: dbUser.left_chat,
+      is_admin: dbUser.is_admin,
     });
   }
   catch (err) {
@@ -89,6 +90,30 @@ api.post('/profile', async (req, res, next) => {
   catch (error) {
     return next(error);
   }
+});
+
+api.get('/users', async (req, res, next) => {
+  if (!req.session) {
+    return next(new errors.Unauthorized());
+  }
+
+  const dbUser = await User.findById(req.session.id);
+  if (!dbUser) {
+    return next(new errors.NotFound());
+  }
+
+  if (!dbUser.is_admin) {
+    return next(new errors.Unauthorized());
+  }
+
+  const dbUsers = await User.findAll();
+  const result = dbUsers.map((user) => ({
+    username: user.id,
+    service: user.service,
+    channel: user.channel,
+  }));
+
+  res.json(result);
 });
 
 api.use(async (req, res) => {
