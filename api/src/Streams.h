@@ -12,78 +12,85 @@
 #include <vector>
 
 #include "Channel.h"
+#include "JSON.h"
 #include "Status.h"
 
 namespace rustla2 {
 
-// Cap stream IDs to 48 bits for JS
-const uint64_t kMaxStreamID = 0xFFFFFFFFFFF;
-
 class Stream {
  public:
   Stream(sqlite::database db, const uint64_t id, const Channel &channel,
-         const std::string &overrustle_id, const std::string &thumbnail = "",
-         const bool live = false, const uint64_t viewer_count = 0)
+         const std::string &overrustle_id, const bool is_nsfw,
+         const bool is_banned, const std::string &thumbnail = "",
+         const bool is_live = false, const uint64_t viewer_count = 0)
       : db_(db),
         id_(id),
         channel_(std::shared_ptr<Channel>(channel)),
         overrustle_id_(overrustle_id),
         thumbnail_(thumbnail),
-        live_(live),
-        nsfw_(false),
+        is_live_(is_live),
+        is_nsfw_(is_nsfw),
+        is_banned_(is_banned),
         viewer_count_(viewer_count) {}
 
   Stream(sqlite::database db, const Channel &channel,
          const std::string &overrustle_id)
-      : Stream(db, ChannelHash{}(channel)&kMaxStreamID, channel,
-               overrustle_id) {}
+      : db_(db),
+        id_(ChannelHash{}(channel)&json::kMaxIntSize),
+        channel_(std::shared_ptr<Channel>(channel)),
+        overrustle_id_(overrustle_id) {}
 
-  inline uint64_t GetID() {
+  uint64_t GetID() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     return id_;
   }
 
-  inline std::shared_ptr<Channel> GetChannel() {
+  std::shared_ptr<Channel> GetChannel() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     return channel_;
   }
 
-  inline std::string GetOverrustleID() {
+  std::string GetOverrustleID() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     return overrustle_id_;
   }
 
-  inline std::string GetThumbnail() {
+  std::string GetThumbnail() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     return thumbnail_;
   }
 
-  inline bool GetLive() {
+  bool GetIsLive() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
-    return live_;
+    return is_live_;
   }
 
-  inline bool GetNSFW() {
+  bool GetIsNSFW() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
-    return nsfw_;
+    return is_nsfw_;
   }
 
-  inline uint64_t GetViewerCount() {
+  bool GetIsBanned() {
+    boost::shared_lock<boost::shared_mutex> read_lock(lock_);
+    return is_banned_;
+  }
+
+  uint64_t GetViewerCount() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     return viewer_count_;
   }
 
-  inline uint64_t GetRustlerCount() {
+  uint64_t GetRustlerCount() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     return rustler_count_;
   }
 
-  inline uint64_t GetUpdateTime() {
+  uint64_t GetUpdateTime() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     return update_time_;
   }
 
-  inline uint64_t GetResetTime() {
+  uint64_t GetResetTime() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     return reset_time_;
   }
@@ -92,7 +99,7 @@ class Stream {
 
   void WriteJSON(rapidjson::Writer<rapidjson::StringBuffer> *writer);
 
-  inline uint64_t IncrRustlerCount() {
+  uint64_t IncrRustlerCount() {
     boost::unique_lock<boost::shared_mutex> write_lock(lock_);
     update_time_ = std::chrono::duration_cast<std::chrono::nanoseconds>(
                        std::chrono::steady_clock::now().time_since_epoch())
@@ -105,7 +112,7 @@ class Stream {
     return ++rustler_count_;
   }
 
-  inline uint64_t DecrRustlerCount() {
+  uint64_t DecrRustlerCount() {
     boost::unique_lock<boost::shared_mutex> write_lock(lock_);
 
     if (rustler_count_ == 0) {
@@ -120,34 +127,34 @@ class Stream {
     return --rustler_count_;
   }
 
-  inline bool SetChannel(std::shared_ptr<Channel> channel) {
+  void SetChannel(std::shared_ptr<Channel> channel) {
     boost::unique_lock<boost::shared_mutex> write_lock(lock_);
     channel_ = channel;
-    return true;
   }
 
-  inline bool SetLive(const bool live) {
+  void SetIsLive(const bool is_live) {
     boost::unique_lock<boost::shared_mutex> write_lock(lock_);
-    live_ = live;
-    return true;
+    is_live_ = is_live;
   }
 
-  inline bool SetThumbnail(const std::string thumbnail) {
+  void SetIsNSFW(const bool is_nsfw) {
+    boost::unique_lock<boost::shared_mutex> write_lock(lock_);
+    is_nsfw_ = is_nsfw;
+  }
+
+  void SetIsBanned(const bool is_banned) {
+    boost::unique_lock<boost::shared_mutex> write_lock(lock_);
+    is_banned_ = is_banned;
+  }
+
+  void SetThumbnail(const std::string thumbnail) {
     boost::unique_lock<boost::shared_mutex> write_lock(lock_);
     thumbnail_ = thumbnail;
-    return true;
   }
 
-  inline bool SetViewerCount(const uint64_t viewer_count) {
+  void SetViewerCount(const uint64_t viewer_count) {
     boost::unique_lock<boost::shared_mutex> write_lock(lock_);
     viewer_count_ = viewer_count;
-    return true;
-  }
-
-  inline bool SetNSFW(const bool nsfw) {
-    boost::unique_lock<boost::shared_mutex> write_lock(lock_);
-    nsfw_ = nsfw;
-    return true;
   }
 
   bool Save();
@@ -160,9 +167,10 @@ class Stream {
   uint64_t id_;
   std::shared_ptr<Channel> channel_;
   std::string overrustle_id_;
-  std::string thumbnail_;
-  bool live_;
-  bool nsfw_;
+  std::string thumbnail_{""};
+  bool is_live_{false};
+  bool is_nsfw_{false};
+  bool is_banned_{false};
   uint64_t viewer_count_{0};
   uint64_t rustler_count_{0};
   uint64_t reset_time_{0};
@@ -181,17 +189,24 @@ class Streams {
 
   std::vector<std::shared_ptr<Stream>> GetAllWithRustlersSorted();
 
+  void WriteJSON(rapidjson::Writer<rapidjson::StringBuffer> *writer);
+
   std::string GetAPIJSON();
 
   void WriteStreamsJSON(rapidjson::Writer<rapidjson::StringBuffer> *writer);
 
-  inline std::shared_ptr<Stream> GetByID(const uint64_t id) {
+  std::shared_ptr<Stream> GetByID(const uint64_t id) {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     auto it = data_by_id_.find(id);
     return it == data_by_id_.end() ? nullptr : it->second;
   }
 
-  inline std::shared_ptr<Stream> GetByChannel(const Channel &channel) {
+  size_t CountID(const uint64_t id) {
+    boost::shared_lock<boost::shared_mutex> read_lock(lock_);
+    return data_by_id_.count(id);
+  }
+
+  std::shared_ptr<Stream> GetByChannel(const Channel &channel) {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     auto it = data_by_channel_.find(channel);
     return it == data_by_channel_.end() ? nullptr : it->second;

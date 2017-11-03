@@ -15,11 +15,11 @@ class StaticCacheEntry {
  public:
   explicit StaticCacheEntry(const fs::path& path);
 
-  inline const char* Data() { return data_.c_str(); }
+  const char* Data() { return data_.c_str(); }
 
-  inline const size_t Size() { return data_size_; }
+  const size_t Size() { return data_size_; }
 
-  inline const size_t HeaderSize() { return header_size_; }
+  const size_t HeaderSize() { return header_size_; }
 
  private:
   std::string data_;

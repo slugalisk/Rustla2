@@ -11,7 +11,7 @@ namespace rustla2 {
 
 class APIHTTPService {
  public:
-  explicit APIHTTPService(std::shared_ptr<DB> db);
+  explicit APIHTTPService(std::shared_ptr<DB> db) : db_(db) {}
 
   void RegisterRoutes(HTTPRouter *router);
 
@@ -25,7 +25,6 @@ class APIHTTPService {
 
  private:
   std::shared_ptr<DB> db_;
-  rapidjson::Document profile_update_schema_;
 };
 
 }  // namespace rustla2

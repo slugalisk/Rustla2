@@ -7,21 +7,19 @@ namespace rustla2 {
 void Stream::WriteAPIJSON(rapidjson::Writer<rapidjson::StringBuffer> *writer) {
   boost::shared_lock<boost::shared_mutex> read_lock(lock_);
 
-  auto url = channel_->GetPath();
-
   writer->StartObject();
   writer->Key("live");
-  writer->Bool(live_);
+  writer->Bool(is_live_);
   writer->Key("nsfw");
-  writer->Bool(nsfw_);
+  writer->Bool(is_nsfw_);
   writer->Key("rustlers");
   writer->Uint64(rustler_count_);
   writer->Key("service");
-  writer->String(channel_->GetChannel());
+  writer->String(channel_->GetService());
   writer->Key("thumbnail");
   writer->String(thumbnail_);
   writer->Key("url");
-  writer->String(url);
+  writer->String(channel_->GetPath());
   writer->Key("viewers");
   writer->Uint64(viewer_count_);
   writer->EndObject();
@@ -42,9 +40,9 @@ void Stream::WriteJSON(rapidjson::Writer<rapidjson::StringBuffer> *writer) {
   writer->Key("thumbnail");
   writer->String(thumbnail_);
   writer->Key("live");
-  writer->Bool(live_);
+  writer->Bool(is_live_);
   writer->Key("nsfw");
-  writer->Bool(nsfw_);
+  writer->Bool(is_nsfw_);
   writer->Key("viewers");
   writer->Uint64(viewer_count_);
   writer->Key("rustlers");
@@ -61,14 +59,17 @@ bool Stream::Save() {
           `channel` = ?,
           `service` = ?,
           `overrustle_id` = ?,
+          `is_nsfw` = ?,
+          `is_banned` = ?,
           `thumbnail` = ?,
-          `live` = ?,
+          `is_live` = ?,
           `viewers` = ?,
           `updated_at` = datetime()
         WHERE `id` = ?
       )sql";
     db_ << sql << channel_->GetChannel() << channel_->GetService()
-        << overrustle_id_ << thumbnail_ << live_ << viewer_count_ << id_;
+        << overrustle_id_ << is_nsfw_ << is_banned_ << thumbnail_ << is_live_
+        << viewer_count_ << id_;
   } catch (const sqlite::sqlite_exception &e) {
     LOG(ERROR) << "error updating stream "
                << "id " << id_ << ", "
@@ -76,7 +77,8 @@ bool Stream::Save() {
                << "service " << channel_->GetService() << ", "
                << "overrustle_id " << overrustle_id_ << ", "
                << "thumbnail " << thumbnail_ << ", "
-               << "live " << live_ << ", "
+               << "is_live " << is_live_ << ", "
+               << "is_banned " << is_banned_ << ", "
                << "viewer_count " << viewer_count_ << ", "
                << "error: " << e.what() << ", "
                << "code: " << e.get_extended_code();
@@ -96,8 +98,10 @@ bool Stream::SaveNew() {
           `channel`,
           `service`,
           `overrustle_id`,
+          `is_nsfw`,
+          `is_banned`,
           `thumbnail`,
-          `live`,
+          `is_live`,
           `viewers`,
           `created_at`,
           `updated_at`
@@ -110,20 +114,25 @@ bool Stream::SaveNew() {
           ?,
           ?,
           ?,
+          ?,
+          ?,
           datetime(),
           datetime()
         )
       )sql";
     db_ << sql << id_ << channel_->GetChannel() << channel_->GetService()
-        << overrustle_id_ << thumbnail_ << live_ << viewer_count_;
+        << overrustle_id_ << is_nsfw_ << is_banned_ << thumbnail_ << is_live_
+        << viewer_count_;
   } catch (const sqlite::sqlite_exception &e) {
     LOG(ERROR) << "error creating stream "
                << "id " << id_ << ", "
                << "channel " << channel_->GetChannel() << ", "
                << "service " << channel_->GetService() << ", "
                << "overrustle_id " << overrustle_id_ << ", "
+               << "is_nsfw " << is_nsfw_ << ", "
+               << "is_banned " << is_banned_ << ", "
                << "thumbnail " << thumbnail_ << ", "
-               << "live " << live_ << ", "
+               << "is_live " << is_live_ << ", "
                << "viewer_count " << viewer_count_ << ", "
                << "error: " << e.what() << ", "
                << "code: " << e.get_extended_code();
@@ -143,8 +152,10 @@ Streams::Streams(sqlite::database db) : db_(db) {
         `channel`,
         `service`,
         `overrustle_id`,
+        `is_nsfw`,
+        `is_banned`,
         `thumbnail`,
-        `live`,
+        `is_live`,
         `viewers`
       FROM `streams`
     )sql";
@@ -152,11 +163,13 @@ Streams::Streams(sqlite::database db) : db_(db) {
 
   query >> [&](const uint64_t id, const std::string &channel,
                const std::string &service, const std::string &overrustle_id,
+               const bool is_nsfw, const bool is_banned,
                const std::string &thumbnail, const bool live,
                const uint64_t viewer_count) {
     const auto stream_channel = Channel::Create(channel, service);
-    auto stream = std::make_shared<Stream>(
-        db_, id, stream_channel, overrustle_id, thumbnail, live, viewer_count);
+    auto stream = std::make_shared<Stream>(db_, id, stream_channel,
+                                           overrustle_id, is_nsfw, is_banned,
+                                           thumbnail, live, viewer_count);
 
     data_by_id_[stream->GetID()] = stream;
     data_by_channel_[stream_channel] = stream;
@@ -171,9 +184,12 @@ void Streams::InitTable() {
         `id` INTEGER PRIMARY KEY,
         `channel` VARCHAR(255) NOT NULL,
         `service` VARCHAR(255) NOT NULL,
-        `overrustle_id` VARCHAR(255) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+        `overrustle_id` VARCHAR(255)
+          REFERENCES `users` (`name`) ON DELETE SET NULL ON UPDATE CASCADE,
+        `is_nsfw` TINYINT(1) DEFAULT 0,
+        `is_banned` TINYINT(1) DEFAULT 0,
         `thumbnail` VARCHAR(255),
-        `live` TINYINT(1) DEFAULT 0,
+        `is_live` TINYINT(1) DEFAULT 0,
         `viewers` INTEGER DEFAULT 0,
         `created_at` DATETIME NOT NULL,
         `updated_at` DATETIME NOT NULL,
@@ -220,6 +236,16 @@ std::vector<std::shared_ptr<Stream>> Streams::GetAllWithRustlersSorted() {
             });
 
   return streams;
+}
+
+void Streams::WriteJSON(rapidjson::Writer<rapidjson::StringBuffer> *writer) {
+  boost::shared_lock<boost::shared_mutex> read_lock(lock_);
+
+  writer->StartArray();
+  for (const auto &it : data_by_id_) {
+    it.second->WriteJSON(writer);
+  }
+  writer->EndArray();
 }
 
 std::string Streams::GetAPIJSON() {

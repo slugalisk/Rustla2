@@ -67,6 +67,8 @@ class Config {
 
   const std::string& GetPublicPath() { return public_path_; }
 
+  const time_t GetBanCheckInterval() { return ban_check_interval_; }
+
  private:
   const std::unordered_map<std::string, std::string> ReadConfigFile(
       const std::string& path);
@@ -118,6 +120,7 @@ class Config {
   std::string ssl_key_path_;
   std::string ssl_key_password_;
   std::string public_path_;
+  time_t ban_check_interval_;
 };
 
 }  // namespace rustla2

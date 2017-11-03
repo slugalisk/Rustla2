@@ -35,7 +35,7 @@ void ServicePoller::Run() {
     }
 
     if (status.Ok()) {
-      stream->SetLive(state.live);
+      stream->SetIsLive(state.live);
       stream->SetThumbnail(state.thumbnail);
       stream->SetViewerCount(state.viewers);
       stream->Save();

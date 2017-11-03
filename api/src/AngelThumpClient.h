@@ -10,7 +10,7 @@ namespace angelthump {
 
 class ChannelResult : public APIResult {
  public:
-  rapidjson::Document GetSchema() override final;
+  std::string GetSchema() override final;
 
   bool GetLive() const;
 

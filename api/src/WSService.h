@@ -29,9 +29,10 @@ class WSService {
   void SetStream(uWS::WebSocket<uWS::SERVER>* ws,
                  const rapidjson::Document& input);
 
-  inline void SetStreamToChannel(
-      const std::string& channel, const std::string& service,
-      rapidjson::Writer<rapidjson::StringBuffer>* writer, uint64_t* stream_id);
+  void SetStreamToChannel(const std::string& channel,
+                          const std::string& service,
+                          rapidjson::Writer<rapidjson::StringBuffer>* writer,
+                          uint64_t* stream_id);
 
   void SetStreamToOverRustleID(
       const std::string& overrustle_id,

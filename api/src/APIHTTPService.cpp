@@ -8,21 +8,6 @@
 
 namespace rustla2 {
 
-APIHTTPService::APIHTTPService(std::shared_ptr<DB> db) : db_(db) {
-  profile_update_schema_.Parse(R"json(
-      {
-        "type": "object",
-        "properties": {
-          "username": {"type": "string"},
-          "service": {"type": "string"},
-          "channel": {"type": "string"},
-          "left_chat": {"type": "boolean"}
-        },
-        "required": ["service", "channel"]
-      }
-    )json");
-}
-
 void APIHTTPService::RegisterRoutes(HTTPRouter *router) {
   const auto &api = Config::Get().GetAPI();
 
@@ -78,19 +63,27 @@ void APIHTTPService::PostProfile(uWS::HttpResponse *res, HTTPRequest *req) {
 
   req->OnPostData([=](const char *data, const size_t length) {
     HTTPResponseWriter writer(res);
+    Status status;
 
-    rapidjson::SchemaDocument profile_update_schema(profile_update_schema_);
-    rapidjson::SchemaValidator validator(profile_update_schema);
-    rapidjson::Document input;
-    input.Parse(data, length);
-
-    if (input.HasParseError() || !input.Accept(validator)) {
+    const auto schema = R"json(
+      {
+        "type": "object",
+        "properties": {
+          "username": {"type": "string"},
+          "service": {"type": "string"},
+          "channel": {"type": "string"},
+          "left_chat": {"type": "boolean"}
+        },
+        "required": ["service", "channel"]
+      }
+    )json";
+    const auto input = json::Parse(data, length, schema, &status);
+    if (!status.Ok()) {
       writer.Status(400, "Invalid Request");
-      writer.JSON("{\"error\": \"malformed or invalid json\"}");
+      writer.JSON(json::Serialize(status));
       return;
     }
 
-    Status status;
     auto channel = Channel::Create(json::StringRef(input["channel"]),
                                    json::StringRef(input["service"]), &status);
 

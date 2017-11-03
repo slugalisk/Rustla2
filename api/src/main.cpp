@@ -25,10 +25,21 @@ class Runner {
   void Run() {
     ServicePoller service_poller(db_);
     folly::FunctionScheduler scheduler;
+
     scheduler.addFunction(
         [&]() { service_poller.Run(); },
         std::chrono::milliseconds(Config::Get().GetLivecheckInterval()),
         "ServicePoller");
+
+    scheduler.addFunction(
+        [&]() {
+          db_->GetUserBans()->ClearExpired();
+          db_->GetStreamBans()->ClearExpired();
+          db_->GetIPBans()->ClearExpired();
+        },
+        std::chrono::milliseconds(Config::Get().GetBanCheckInterval()),
+        "BanExpiryChecker");
+
     scheduler.start();
 
     auto concurrency = FLAGS_concurrency ? FLAGS_concurrency

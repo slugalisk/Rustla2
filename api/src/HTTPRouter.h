@@ -56,7 +56,7 @@ using HTTPRouteMap =
 
 class HTTPRouterLayer {
  public:
-  HTTPRouterLayer() {}
+  HTTPRouterLayer() = default;
 
   explicit HTTPRouterLayer(HTTPRoute route) : route_(route) {}
 
@@ -146,6 +146,10 @@ class HTTPRouter {
     InsertHandler(path, uWS::HttpMethod::METHOD_POST, handler);
   }
 
+  void Delete(const std::string &path, HTTPRouteHandler handler) {
+    InsertHandler(path, uWS::HttpMethod::METHOD_DELETE, handler);
+  }
+
   void Head(const std::string &path, HTTPRouteHandler handler) {
     InsertHandler(path, uWS::HttpMethod::METHOD_HEAD, handler);
   }
@@ -158,6 +162,11 @@ class HTTPRouter {
   template <typename T, typename I>
   void Post(const std::string &path, const T handler, I *instance) {
     Post(path, CreateHandler(handler, instance));
+  }
+
+  template <typename T, typename I>
+  void Delete(const std::string &path, const T handler, I *instance) {
+    Delete(path, CreateHandler(handler, instance));
   }
 
   template <typename T, typename I>

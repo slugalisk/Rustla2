@@ -180,7 +180,7 @@ void WSService::SetStream(uWS::WebSocket<uWS::SERVER>* ws,
 /**
  * Handle request for stream by channel/service
  */
-inline void WSService::SetStreamToChannel(
+void WSService::SetStreamToChannel(
     const std::string& channel, const std::string& service,
     rapidjson::Writer<rapidjson::StringBuffer>* writer, uint64_t* stream_id) {
   Status status;
@@ -225,15 +225,15 @@ void WSService::SetStreamToOverRustleID(
 void WSService::SetStreamToChannel(
     const Channel& channel, const std::string& overrustle_id,
     rapidjson::Writer<rapidjson::StringBuffer>* writer, uint64_t* stream_id) {
-  if (db_->GetBannedStreams()->Contains(channel)) {
-    writer->String("STREAM_BANNED");
-    writer->Null();
-    return;
-  }
-
   auto stream = db_->GetStreams()->GetByChannel(channel);
   if (stream == nullptr) {
     stream = db_->GetStreams()->Emplace(channel, overrustle_id);
+  }
+
+  if (stream->GetIsBanned()) {
+    writer->String("STREAM_BANNED");
+    writer->Null();
+    return;
   }
 
   writer->String("STREAM_SET");

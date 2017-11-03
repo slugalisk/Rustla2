@@ -19,9 +19,8 @@ std::string VideosResult::Video::GetMediumThumbnail() const {
   return json::StringRef(data_["snippet"]["thumbnails"]["medium"]["url"]);
 }
 
-rapidjson::Document VideosResult::GetSchema() {
-  rapidjson::Document schema;
-  schema.Parse(R"json(
+std::string VideosResult::GetSchema() {
+  return R"json(
       {
         "type": "object",
         "properties": {
@@ -75,8 +74,7 @@ rapidjson::Document VideosResult::GetSchema() {
           }
         }
       }
-    )json");
-  return schema;
+    )json";
 }
 
 bool VideosResult::IsEmpty() const { return GetTotalResults() == 0; }
@@ -90,9 +88,8 @@ const VideosResult::Video VideosResult::GetVideo(const size_t index) const {
   return Video(items[index]);
 }
 
-rapidjson::Document ErrorResult::GetSchema() {
-  rapidjson::Document schema;
-  schema.Parse(R"json(
+std::string ErrorResult::GetSchema() {
+  return R"json(
       {
         "type": "object",
         "properties": {
@@ -107,8 +104,7 @@ rapidjson::Document ErrorResult::GetSchema() {
         },
         "required": ["error"]
       }
-    )json");
-  return schema;
+    )json";
 }
 
 uint64_t ErrorResult::GetErrorCode() const {

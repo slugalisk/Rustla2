@@ -6,9 +6,8 @@
 namespace rustla2 {
 namespace angelthump {
 
-rapidjson::Document ChannelResult::GetSchema() {
-  rapidjson::Document schema;
-  schema.Parse(R"json(
+std::string ChannelResult::GetSchema() {
+  return R"json(
       {
         "type": "object",
         "properties": {
@@ -21,8 +20,7 @@ rapidjson::Document ChannelResult::GetSchema() {
         },
         "required": ["live", "thumbnail", "viewers"]
       }
-    )json");
-  return schema;
+    )json";
 }
 
 bool ChannelResult::GetLive() const { return GetData()["live"].GetBool(); }

@@ -4,64 +4,73 @@
 #include <rapidjson/writer.h>
 #include <sqlite_modern_cpp.h>
 #include <boost/thread/shared_mutex.hpp>
+#include <functional>
 #include <memory>
+#include <string>
 #include <unordered_map>
 
 #include "Channel.h"
+#include "JSON.h"
 
 namespace rustla2 {
 
 class User {
  public:
-  User(sqlite::database db, const std::string &id, const Channel &channel,
-       const std::string &last_ip, const time_t last_seen, const bool left_chat,
-       const bool is_admin)
+  User(sqlite::database db, const uint64_t id, const std::string &name,
+       const Channel &channel, const std::string &last_ip,
+       const time_t last_seen, const bool left_chat, const bool is_admin,
+       const bool is_banned)
       : db_(db),
         id_(id),
+        name_(name),
         channel_(std::shared_ptr<Channel>(channel)),
         last_ip_(last_ip),
         last_seen_(last_seen),
         left_chat_(left_chat),
-        is_admin_(is_admin) {}
+        is_admin_(is_admin),
+        is_banned_(is_banned) {}
 
-  User(sqlite::database db, const std::string &id, const Channel &channel,
+  User(sqlite::database db, const std::string &name, const Channel &channel,
        const std::string &last_ip)
       : db_(db),
-        id_(id),
+        id_(std::hash<std::string>{}(name)&json::kMaxIntSize),
+        name_(name),
         channel_(std::shared_ptr<Channel>(channel)),
         last_ip_(last_ip),
-        last_seen_(time(nullptr)),
-        left_chat_(false),
-        is_admin_(false) {}
+        last_seen_(time(nullptr)) {}
 
-  inline std::string GetID() {
-    boost::shared_lock<boost::shared_mutex> read_lock(lock_);
-    return id_;
-  }
+  uint64_t GetID() { return id_; }
 
-  inline std::shared_ptr<Channel> GetChannel() {
+  const std::string &GetName() { return name_; }
+
+  std::shared_ptr<Channel> GetChannel() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     return channel_;
   }
 
-  inline std::string GetLastIP() {
+  std::string GetLastIP() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     return last_ip_;
   }
 
-  inline time_t GetLastSeen() {
+  time_t GetLastSeen() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     return last_seen_;
   }
 
-  inline bool GetLeftChat() {
+  bool GetLeftChat() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     return left_chat_;
   }
 
-  inline bool GetIsAdmin() {
+  bool GetIsAdmin() {
     boost::shared_lock<boost::shared_mutex> read_lock(lock_);
     return is_admin_;
+  }
+
+  bool GetIsBanned() {
+    boost::shared_lock<boost::shared_mutex> read_lock(lock_);
+    return is_banned_;
   }
 
   std::string GetStreamJSON();
@@ -70,13 +79,35 @@ class User {
 
   void WriteJSON(rapidjson::Writer<rapidjson::StringBuffer> *writer);
 
-  bool SetChannel(const Channel &channel);
+  void SetChannel(const Channel &channel) {
+    boost::unique_lock<boost::shared_mutex> write_lock(lock_);
+    channel_ = std::make_shared<Channel>(channel);
+  }
 
-  bool SetLeftChat(bool left_chat);
+  void SetLastIP(const std::string &last_ip) {
+    boost::unique_lock<boost::shared_mutex> write_lock(lock_);
+    last_ip_ = last_ip;
+  }
 
-  bool SetLastIP(const std::string &last_ip);
+  void SetLastSeen(const time_t last_seen) {
+    boost::unique_lock<boost::shared_mutex> write_lock(lock_);
+    last_seen_ = last_seen;
+  }
 
-  bool SetLastSeen(const time_t last_seen);
+  void SetLeftChat(bool left_chat) {
+    boost::unique_lock<boost::shared_mutex> write_lock(lock_);
+    left_chat_ = left_chat;
+  }
+
+  void SetIsAdmin(const bool is_admin) {
+    boost::unique_lock<boost::shared_mutex> write_lock(lock_);
+    is_admin_ = is_admin;
+  }
+
+  void SetIsBanned(const bool is_banned) {
+    boost::unique_lock<boost::shared_mutex> write_lock(lock_);
+    is_banned_ = is_banned;
+  }
 
   bool Save();
 
@@ -85,12 +116,14 @@ class User {
  private:
   sqlite::database db_;
   boost::shared_mutex lock_;
-  std::string id_;
+  const uint64_t id_;
+  const std::string name_;
   std::shared_ptr<Channel> channel_;
   std::string last_ip_;
   time_t last_seen_;
-  bool left_chat_;
-  bool is_admin_;
+  bool left_chat_{false};
+  bool is_admin_{false};
+  bool is_banned_{false};
 };
 
 class Users {
@@ -99,17 +132,33 @@ class Users {
 
   void InitTable();
 
-  std::shared_ptr<User> GetByName(const std::string &name);
+  std::shared_ptr<User> GetByID(const uint64_t id) {
+    boost::shared_lock<boost::shared_mutex> read_lock(lock_);
+    const auto i = data_by_id_.find(id);
+    return i == data_by_id_.end() ? nullptr : i->second;
+  }
+
+  size_t CountID(const uint64_t id) {
+    boost::shared_lock<boost::shared_mutex> read_lock(lock_);
+    return data_by_id_.count(id);
+  }
+
+  std::shared_ptr<User> GetByName(const std::string &name) {
+    boost::shared_lock<boost::shared_mutex> read_lock(lock_);
+    const auto i = data_by_name_.find(name);
+    return i == data_by_name_.end() ? nullptr : i->second;
+  }
 
   std::shared_ptr<User> Emplace(const std::string &name, const Channel &channel,
-                                const std::string &ip);
+                                const std::string &ip = "");
 
   void WriteJSON(rapidjson::Writer<rapidjson::StringBuffer> *writer);
 
  private:
   sqlite::database db_;
   boost::shared_mutex lock_;
-  std::unordered_map<std::string, std::shared_ptr<User>> data_;
+  std::unordered_map<uint64_t, std::shared_ptr<User>> data_by_id_;
+  std::unordered_map<std::string, std::shared_ptr<User>> data_by_name_;
 };
 
 }  // namespace rustla2

@@ -27,6 +27,7 @@ constexpr char kDefaultIPAddressHeader[] = "x-client-ip";
 constexpr time_t kDefaultStreamBroadcastInterval = 60000;
 constexpr time_t kDefaultRustlerBroadcastInterval = 100;
 constexpr char kDefaultPublicPath[] = "./public";
+constexpr time_t kDefaultBanCheckInterval = 60000;
 
 }  // namespace
 
@@ -60,6 +61,8 @@ void Config::Init(const std::string& config_path) {
   AssignString(&ssl_cert_path_, "SSL_CERT_PATH", config);
   AssignString(&ssl_key_path_, "SSL_KEY_PATH", config);
   AssignString(&public_path_, "PUBLIC_PATH", config, kDefaultPublicPath);
+  AssignUint(&ban_check_interval_, "BAN_CHECK_INTERVAL", config,
+             kDefaultBanCheckInterval);
 
   if (!ssl_cert_path_.empty() && !ssl_key_path_.empty() &&
       !AssignString(&ssl_key_password_, "SSL_KEY_PASSWORD", config)) {

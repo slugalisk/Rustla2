@@ -61,9 +61,10 @@ set(LIB
 set(SOURCE_FILES
         src/APIClient.cpp
         src/APIHTTPService.cpp
+        src/AdminHTTPService.cpp
         src/AngelThumpClient.cpp
         src/AuthHTTPService.cpp
-        src/BannedStreams.cpp
+        src/Bans.cpp
         src/Channel.cpp
         src/Config.cpp
         src/Curl.cpp
@@ -71,6 +72,7 @@ set(SOURCE_FILES
         src/HTTPResponseWriter.cpp
         src/HTTPService.cpp
         src/IPRanges.cpp
+        src/JSON.cpp
         src/MIMETypes.cpp
         src/ServicePoller.cpp
         src/Session.cpp

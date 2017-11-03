@@ -2,6 +2,7 @@
 #include <memory>
 
 #include "APIHTTPService.h"
+#include "AdminHTTPService.h"
 #include "AuthHTTPService.h"
 #include "DB.h"
 #include "HTTPRequest.h"
@@ -15,7 +16,7 @@ class HTTPService {
   HTTPService(std::shared_ptr<DB> db, uWS::Hub *hub);
 
  private:
-  inline HTTPRequest *LoadHTTPRequestFromUserData(uWS::HttpResponse *res) {
+  HTTPRequest *LoadHTTPRequestFromUserData(uWS::HttpResponse *res) {
     return res == nullptr ? nullptr
                           : static_cast<HTTPRequest *>(res->getUserData());
   }
@@ -25,6 +26,7 @@ class HTTPService {
   std::shared_ptr<DB> db_;
   HTTPRouter router_;
   APIHTTPService api_service_;
+  AdminHTTPService admin_service_;
   AuthHTTPService auth_service_;
   StaticHTTPService static_service_;
 };

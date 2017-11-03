@@ -12,9 +12,11 @@ namespace rustla2 {
 HTTPService::HTTPService(std::shared_ptr<DB> db, uWS::Hub *hub)
     : db_(db),
       api_service_(db_),
+      admin_service_(db_),
       auth_service_(db_),
       static_service_(Config::Get().GetPublicPath()) {
   api_service_.RegisterRoutes(&router_);
+  admin_service_.RegisterRoutes(&router_);
   auth_service_.RegisterRoutes(&router_);
   static_service_.RegisterRoutes(&router_);
 

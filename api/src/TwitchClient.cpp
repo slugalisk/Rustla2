@@ -8,9 +8,8 @@
 namespace rustla2 {
 namespace twitch {
 
-rapidjson::Document ErrorResult::GetSchema() {
-  rapidjson::Document schema;
-  schema.Parse(R"json(
+std::string ErrorResult::GetSchema() {
+  return R"json(
       {
         "type": "object",
         "properties": {
@@ -19,8 +18,7 @@ rapidjson::Document ErrorResult::GetSchema() {
         },
         "required": ["error", "message"]
       }
-    )json");
-  return schema;
+    )json";
 }
 
 std::string ErrorResult::GetError() const {
@@ -31,9 +29,8 @@ std::string ErrorResult::GetMessage() const {
   return json::StringRef(GetData()["message"]);
 }
 
-rapidjson::Document UserResult::GetSchema() {
-  rapidjson::Document schema;
-  schema.Parse(R"json(
+std::string UserResult::GetSchema() {
+  return R"json(
       {
         "type": "object",
         "properties": {
@@ -45,8 +42,7 @@ rapidjson::Document UserResult::GetSchema() {
         },
         "required": ["_id", "name"]
       }
-    )json");
-  return schema;
+    )json";
 }
 
 uint64_t UserResult::GetID() const { return GetData()["_id"].GetUint64(); }
@@ -59,9 +55,8 @@ uint64_t UsersResult::User::GetID() const {
   return std::stoull(std::string(json::StringRef(data_["_id"])));
 }
 
-rapidjson::Document UsersResult::GetSchema() {
-  rapidjson::Document schema;
-  schema.Parse(R"json(
+std::string UsersResult::GetSchema() {
+  return R"json(
       {
         "type": "object",
         "properties": {
@@ -83,8 +78,7 @@ rapidjson::Document UsersResult::GetSchema() {
         },
         "required": ["_total", "users"]
       }
-    )json");
-  return schema;
+    )json";
 }
 
 bool UsersResult::IsEmpty() const { return GetSize() == 0; }
@@ -96,9 +90,8 @@ const UsersResult::User UsersResult::GetUser(const size_t index) const {
   return User(users[index]);
 }
 
-rapidjson::Document AuthTokenResult::GetSchema() {
-  rapidjson::Document schema;
-  schema.Parse(R"json(
+std::string AuthTokenResult::GetSchema() {
+  return R"json(
     {
       "type": "object",
       "properties": {
@@ -106,17 +99,15 @@ rapidjson::Document AuthTokenResult::GetSchema() {
       },
       "required": ["access_token"]
     }
-  )json");
-  return schema;
+  )json";
 }
 
 std::string AuthTokenResult::GetAccessToken() const {
   return json::StringRef(GetData()["access_token"]);
 }
 
-rapidjson::Document StreamsResult::GetSchema() {
-  rapidjson::Document schema;
-  schema.Parse(R"json(
+std::string StreamsResult::GetSchema() {
+  return R"json(
       {
         "type": "object",
         "properties": {
@@ -145,8 +136,7 @@ rapidjson::Document StreamsResult::GetSchema() {
         },
         "required": ["stream"]
       }
-    )json");
-  return schema;
+    )json";
 }
 
 bool StreamsResult::IsEmpty() const { return GetData()["stream"].IsNull(); }
@@ -159,9 +149,8 @@ std::string StreamsResult::GetLargePreview() const {
   return json::StringRef(GetData()["stream"]["preview"]["large"]);
 }
 
-rapidjson::Document ChannelsResult::GetSchema() {
-  rapidjson::Document schema;
-  schema.Parse(R"json(
+std::string ChannelsResult::GetSchema() {
+  return R"json(
       {
         "type": "object",
         "properties": {
@@ -177,8 +166,7 @@ rapidjson::Document ChannelsResult::GetSchema() {
         },
         "required": ["video_banner"]
       }
-    )json");
-  return schema;
+    )json";
 }
 
 std::string ChannelsResult::GetVideoBanner() const {
@@ -187,9 +175,8 @@ std::string ChannelsResult::GetVideoBanner() const {
   ;
 }
 
-rapidjson::Document VideosResult::GetSchema() {
-  rapidjson::Document schema;
-  schema.Parse(R"json(
+std::string VideosResult::GetSchema() {
+  return R"json(
       {
         "type": "object",
         "properties": {
@@ -207,8 +194,7 @@ rapidjson::Document VideosResult::GetSchema() {
         },
         "required": ["views", "preview"]
       }
-    )json");
-  return schema;
+    )json";
 }
 
 std::string VideosResult::GetLargePreview() const {

@@ -2,6 +2,7 @@
 
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <ostream>
 #include <string>
 
 namespace rustla2 {
@@ -16,6 +17,8 @@ enum StatusCode {
   VALIDATION_ERROR = 6,
   API_ERROR = 7,
   DB_ENGINE_ERROR = 8,
+  ID_ERROR = 9,
+  INVALID_ARGUMENT = 10,
 };
 
 class Status {
@@ -36,6 +39,8 @@ class Status {
 
   bool Ok() const { return code_ == StatusCode::OK; }
 
+  StatusCode GetCode() const { return code_; }
+
   std::string GetErrorMessage() const { return error_message_; }
 
   std::string GetErrorDetails() const { return error_details_; }
@@ -47,5 +52,7 @@ class Status {
   std::string error_message_;
   std::string error_details_;
 };
+
+std::ostream& operator<<(std::ostream& stream, const Status& status);
 
 }  // namespace rustla2

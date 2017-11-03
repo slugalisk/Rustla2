@@ -12,7 +12,7 @@ namespace twitch {
 
 class ErrorResult : public APIResult {
  public:
-  rapidjson::Document GetSchema() override final;
+  std::string GetSchema() override final;
 
   std::string GetError() const;
 
@@ -21,7 +21,7 @@ class ErrorResult : public APIResult {
 
 class UserResult : public APIResult {
  public:
-  rapidjson::Document GetSchema() override final;
+  std::string GetSchema() override final;
 
   uint64_t GetID() const;
 
@@ -40,7 +40,7 @@ class UsersResult : public APIResult {
     const rapidjson::Value& data_;
   };
 
-  rapidjson::Document GetSchema() override final;
+  std::string GetSchema() override final;
 
   bool IsEmpty() const;
 
@@ -51,14 +51,14 @@ class UsersResult : public APIResult {
 
 class AuthTokenResult : public APIResult {
  public:
-  rapidjson::Document GetSchema() override final;
+  std::string GetSchema() override final;
 
   std::string GetAccessToken() const;
 };
 
 class StreamsResult : public APIResult {
  public:
-  rapidjson::Document GetSchema() override final;
+  std::string GetSchema() override final;
 
   bool IsEmpty() const;
 
@@ -69,14 +69,14 @@ class StreamsResult : public APIResult {
 
 class ChannelsResult : public APIResult {
  public:
-  rapidjson::Document GetSchema() override final;
+  std::string GetSchema() override final;
 
   std::string GetVideoBanner() const;
 };
 
 class VideosResult : public APIResult {
  public:
-  rapidjson::Document GetSchema() override final;
+  std::string GetSchema() override final;
 
   std::string GetLargePreview() const;
 
@@ -106,7 +106,7 @@ class Client {
   Status GetVideosByID(const std::string& video_id, VideosResult* result);
 
  private:
-  inline std::string GetKrakenURL(const std::string& path) {
+  std::string GetKrakenURL(const std::string& path) {
     return "https://api.twitch.tv/kraken/" + path;
   }
 

@@ -19,15 +19,13 @@ class HTTPRequest {
 
   explicit HTTPRequest(rustla2::HTTPRequest&& req) noexcept;
 
-  inline void OnPostData(PostDataHandler handler) {
-    post_data_handler_ = handler;
-  }
+  void OnPostData(PostDataHandler handler) { post_data_handler_ = handler; }
 
   void WritePostData(char* data, size_t length, size_t remaining_bytes);
 
   const std::map<std::string, std::string> GetQueryParams() const;
 
-  inline const uWS::HttpMethod GetMethod() { return req_.getMethod(); }
+  const uWS::HttpMethod GetMethod() { return req_.getMethod(); }
 
   std::string GetCookie(const std::string& name);
 
@@ -35,11 +33,9 @@ class HTTPRequest {
 
   folly::StringPiece GetClientIPHeader();
 
-  inline const std::vector<folly::StringPiece>& GetPath() const {
-    return path_;
-  }
+  const std::vector<folly::StringPiece>& GetPath() const { return path_; }
 
-  inline folly::StringPiece GetPathPart(size_t i) const { return path_[i]; }
+  folly::StringPiece GetPathPart(size_t i) const { return path_[i]; }
 
  private:
   uWS::HttpRequest req_;

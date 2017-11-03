@@ -51,24 +51,24 @@ class Channel {
     return Create(channel, service, &status);
   }
 
-  inline operator std::shared_ptr<Channel>() const {
+  operator std::shared_ptr<Channel>() const {
     return std::shared_ptr<Channel>(new Channel(channel_, service_));
   }
 
-  inline const std::string &GetChannel() const { return channel_; }
+  const std::string &GetChannel() const { return channel_; }
 
-  inline const std::string &GetService() const { return service_; }
+  const std::string &GetService() const { return service_; }
 
-  inline const std::string GetPath() const {
+  const std::string GetPath() const {
     return folly::sformat("/{}/{}", service_, channel_);
   }
 
-  inline bool IsEmpty() { return channel_.empty() || service_.empty(); }
+  bool IsEmpty() { return channel_.empty() || service_.empty(); }
 
   void WriteJSON(rapidjson::Writer<rapidjson::StringBuffer> *writer);
 
  private:
-  Channel() {}
+  Channel() = default;
 
   Channel(const std::string &channel, const std::string &service)
       : channel_(channel), service_(service) {}

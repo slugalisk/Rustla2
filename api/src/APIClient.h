@@ -14,9 +14,7 @@ class APIResult {
 
   const rapidjson::Document& GetData() const { return data_; }
 
-  virtual rapidjson::Document GetSchema() = 0;
-
-  virtual Status Validate(const rapidjson::Document& data);
+  virtual std::string GetSchema() = 0;
 
   Status SetData(const char* data, size_t length);
 
